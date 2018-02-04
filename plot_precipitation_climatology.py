@@ -1,10 +1,10 @@
 import argparse
 import numpy
-iris.FUTURE.netcdf_promote = True
 import matplotlib.pyplot as plt
 import iris
 import iris.plot as iplt
 import iris.coord_categorisation
+iris.FUTURE.netcdf_promote = True
 import cmocean
 
 
@@ -22,7 +22,7 @@ def read_data(fname, month):
 
 def convert_pr_units(cube):
     """Convert kg m-2 s-1 to mm day-1"""
-   
+    assert cube.units == 'kg m-2 s-1', "Program assumes that input units are kg m-2 s-1"   
     cube.data = cube.data * 86400
     cube.units = 'mm/day'
    
@@ -49,13 +49,30 @@ def plot_data(cube, month, gridlines=False, levels=None):
     title = '%s precipitation climatology (%s)' %(cube.attributes['model_id'], month)
     plt.title(title)
 
+def apply_mask(pr_cube, sftlf_cube, realm):
+    """Mask ocean using a sftlf (land surface fraction) file."""
+   
+    if realm == 'land':
+        mask = numpy.where(sftlf_cube.data > 50, True, False)
+    else:
+        mask = numpy.where(sftlf_cube.data < 50, True, False)
+   
+    pr_cube.data = numpy.ma.asarray(pr_cube.data)
+    pr_cube.data.mask = mask
+    return pr_cube
 
 def main(inargs):
-    """Plot the precipitation climatology."""
+    """Run the program."""
 
     cube = read_data(inargs.infile, inargs.month)    
     cube = convert_pr_units(cube)
     clim = cube.collapsed('time', iris.analysis.MEAN)
+
+    if inargs.mask:
+        sftlf_file, realm = inargs.mask
+        sftlf_cube = iris.load_cube(sftlf_file, 'land_area_fraction')
+        clim = apply_mask(clim, sftlf_cube, realm)
+
     plot_data(clim, inargs.month, gridlines=inargs.gridlines,
               levels=inargs.cbar_levels)
     plt.savefig(inargs.outfile)
@@ -78,6 +95,8 @@ if __name__ == '__main__':
                         help="Include gridlines on the plot")
     parser.add_argument("--cbar_levels", type=float, nargs='*', default=None,
                         help='list of levels / tick marks to appear on the colourbar') 
+    parser.add_argument("--mask", type=str, nargs=2, metavar=('SFTLF_FILE', 'REALM'), default=None,
+                           help='Apply a land or ocean mask (specify the realm to mask)')
 
     args = parser.parse_args()            
     main(args)
